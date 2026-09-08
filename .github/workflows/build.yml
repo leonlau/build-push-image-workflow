@@ -1,0 +1,105 @@
+name: Build & Push Myoshu Docker Images
+
+on:
+  # 手动触发(默认参数即可跑通)
+  workflow_dispatch:
+    inputs:
+      gitee_ref:
+        description: "要构建的分支/tag/SHA"
+        required: false
+        default: "master"
+      push_myoshu:
+        description: "是否构建并推送 myoshu 镜像"
+        type: boolean
+        required: false
+        default: true
+      push_content_management:
+        description: "是否构建并推送 content-management 镜像"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Setup SSH agent with Gitee deploy key
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.GITEE_SSH_PRIVATE_KEY }}
+
+      - name: Clone source from Gitee
+        env:
+          GITEE_REPO: ${{ secrets.GITEE_REPO_URL }}
+          GITEE_REF: ${{ inputs.gitee_ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          ssh-keyscan -t rsa,ecdsa,ed25519 gitee.com 2>/dev/null >> ~/.ssh/known_hosts
+
+          if [ -n "$GITEE_REF" ]; then
+            git clone --recurse-submodules --shallow-submodules "$GITEE_REPO" myoshu
+            git -C myoshu fetch --depth 1 origin "$GITEE_REF"
+            git -C myoshu checkout FETCH_HEAD
+            git -C myoshu submodule update --init --recursive --depth 1
+          else
+            git clone \
+              --depth 1 \
+              --recurse-submodules --shallow-submodules \
+              "$GITEE_REPO" myoshu
+          fi
+
+
+      - name: Login to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.DOCKER_REGISTRY }}
+          username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
+          password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push image
+        id: push_myoshu
+        if: ${{ inputs.push_myoshu != false }}
+        working-directory: myoshu
+        run: |
+          set -euo pipefail
+          FULL_TAG=$(make myoshu-image)
+          echo "full_tag=${FULL_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Pushing ${FULL_TAG}"
+          make myoshu-push
+
+      - name: Build & push content-management image
+        id: push_cm
+        if: ${{ inputs.push_content_management != false }}
+        working-directory: myoshu
+        run: |
+          set -euo pipefail
+          FULL_TAG=$(make content-management-image)
+          echo "full_tag=${FULL_TAG}" >> "$GITHUB_OUTPUT"
+          echo "Pushing ${FULL_TAG}"
+          make content-management-push
+
+      - name: Summarize pushed images
+        if: ${{ success() }}
+        run: |
+          {
+            echo "## 🐳 推送完成"
+            echo ""
+            echo "| 镜像 | Tag |"
+            echo "| --- | --- |"
+            if [ "${{ inputs.push_myoshu }}" != "false" ]; then
+              echo "| myoshu | \`${{ steps.push_myoshu.outputs.full_tag }}\` |"
+            fi
+            if [ "${{ inputs.push_content_management }}" != "false" ]; then
+              echo "| content-management | \`${{ steps.push_cm.outputs.full_tag }}\` |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
