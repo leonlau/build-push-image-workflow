@@ -83,10 +83,10 @@ jobs:
         working-directory: myoshu
         run: |
           set -euo pipefail
-          FULL_TAG=$(make content-management-image)
+          FULL_TAG=$(make cm-image)
           echo "full_tag=${FULL_TAG}" >> "$GITHUB_OUTPUT"
           echo "Pushing ${FULL_TAG}"
-          make content-management-push
+          make cm-push
 
       - name: Summarize pushed images
         if: ${{ success() }}
