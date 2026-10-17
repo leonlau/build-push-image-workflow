@@ -8,13 +8,8 @@ on:
         description: "要构建的分支/tag/SHA"
         required: false
         default: "master"
-      push_myoshu:
-        description: "是否构建并推送 myoshu 镜像"
-        type: boolean
-        required: false
-        default: true
-      push_content_management:
-        description: "是否构建并推送 content-management 镜像"
+      push_images:
+        description: "是否构建并推送镜像"
         type: boolean
         required: false
         default: true
@@ -66,40 +61,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build & push image
-        id: push_myoshu
-        if: ${{ inputs.push_myoshu != false }}
+      - name: Build & push images
+        if: ${{ inputs.push_images != false }}
         working-directory: myoshu
         run: |
           set -euo pipefail
-          FULL_TAG=$(make myoshu-image)
-          echo "full_tag=${FULL_TAG}" >> "$GITHUB_OUTPUT"
-          echo "Pushing ${FULL_TAG}"
-          make myoshu-push
+          make docker-push
 
-      - name: Build & push content-management image
-        id: push_cm
-        if: ${{ inputs.push_content_management != false }}
-        working-directory: myoshu
-        run: |
-          set -euo pipefail
-          FULL_TAG=$(make cm-image)
-          echo "full_tag=${FULL_TAG}" >> "$GITHUB_OUTPUT"
-          echo "Pushing ${FULL_TAG}"
-          make cm-push
-
-      - name: Summarize pushed images
+      - name: Summarize
         if: ${{ success() }}
         run: |
           {
-            echo "## 🐳 推送完成"
+            echo "## 🐳 构建推送完成"
             echo ""
-            echo "| 镜像 | Tag |"
-            echo "| --- | --- |"
-            if [ "${{ inputs.push_myoshu }}" != "false" ]; then
-              echo "| myoshu | \`${{ steps.push_myoshu.outputs.full_tag }}\` |"
-            fi
-            if [ "${{ inputs.push_content_management }}" != "false" ]; then
-              echo "| content-management | \`${{ steps.push_cm.outputs.full_tag }}\` |"
-            fi
+            echo "来源: \`${{ inputs.gitee_ref }}\`"
+            echo ""
+            echo "镜像 tag 见上方构建日志(make docker-push 末尾输出)"
           } >> "$GITHUB_STEP_SUMMARY"
